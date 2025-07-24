@@ -1,0 +1,109 @@
+# 1. Create and enter a new project directory
+mkdir workflow-api-mcp-test && cd workflow-api-mcp-test
+
+# 2. Initialize a new Node.js project
+npm init -y
+
+# 3. Install the required HTTP library
+npm install node-fetch@2
+
+# 4. Create the main script file
+cat <<'EOF' > test-mcp.js
+const fetch = require('node-fetch');
+
+// === CONFIGURATION ===
+const BASE_URL = process.env.WORKFLOW_BASE_URL || 'https://plus-qa.integrify.com';
+const TENANT = process.env.WORKFLOW_TENANT || 'your-tenant';
+const API_KEY = process.env.WORKFLOW_API_KEY || 'your-api-key';
+const SEARCH_TERM = process.env.WORKFLOW_SEARCH_TERM || '';
+
+// === HELPERS ===
+function getApiKeyHeader() {
+  return \`\${TENANT} \${API_KEY}\`;
+}
+
+async function authenticate() {
+  const url = \`\${BASE_URL.replace(/\\/$/, '')}/api/auth/session/create\`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'integrify-api-key': getApiKeyHeader(),
+    },
+    body: '',
+  });
+  if (!resp.ok) throw new Error('Auth failed: ' + (await resp.text()));
+  console.log('✅ Authenticated');
+}
+
+async function searchProcesses() {
+  const url = \`\${BASE_URL.replace(/\\/$/, '')}/api/processes/search?search=\${encodeURIComponent(SEARCH_TERM)}\`;
+  const resp = await fetch(url, {
+    headers: { 'integrify-api-key': getApiKeyHeader() },
+  });
+  if (!resp.ok) throw new Error('Process search failed: ' + (await resp.text()));
+  const data = await resp.json();
+  console.log('Found processes:', data.map(p => \`\${p.processName} (\${p.processGuid})\`).join(', '));
+  return data[0]; // pick the first process
+}
+
+async function getTasks(processGuid) {
+  const url = \`\${BASE_URL.replace(/\\/$/, '')}/api/processes/\${processGuid}/tasks\`;
+  const resp = await fetch(url, {
+    headers: { 'integrify-api-key': getApiKeyHeader() },
+  });
+  if (!resp.ok) throw new Error('Task fetch failed: ' + (await resp.text()));
+  const data = await resp.json();
+  console.log('Found tasks:', data.map(t => \`\${t.taskName} (\${t.taskTypeGuid})\`).join(', '));
+  return data[0]; // pick the first task
+}
+
+async function getTaskDetails(taskGuid) {
+  const url = \`\${BASE_URL.replace(/\\/$/, '')}/api/processes/processTask/\${taskGuid}\`;
+  const resp = await fetch(url, {
+    headers: { 'integrify-api-key': getApiKeyHeader() },
+  });
+  if (!resp.ok) throw new Error('Task details fetch failed: ' + (await resp.text()));
+  const data = await resp.json();
+  console.log('Task details:', JSON.stringify(data, null, 2));
+}
+
+(async () => {
+  try {
+    await authenticate();
+    const process = await searchProcesses();
+    if (!process) throw new Error('No process found');
+    const task = await getTasks(process.processGuid);
+    if (!task) throw new Error('No task found');
+    await getTaskDetails(task.guid || task.taskGuid);
+    console.log('✅ MCP test complete');
+  } catch (err) {
+    console.error('❌ Error:', err.message);
+  }
+})();
+EOF
+
+# 5. Print usage instructions
+echo "
+==========================
+Workflow API MCP Test Project
+==========================
+
+1. Set your credentials as environment variables:
+   export WORKFLOW_BASE_URL='https://plus-qa.integrify.com'
+   export WORKFLOW_TENANT='your-tenant'
+   export WORKFLOW_API_KEY='your-api-key'
+   export WORKFLOW_SEARCH_TERM='optional search term'
+
+2. Run the script:
+   node test-mcp.js
+
+3. The script will:
+   - Authenticate
+   - Search for processes
+   - Fetch tasks for the first process
+   - Fetch details for the first task
+   - Print results
+
+Edit test-mcp.js if you want to customize the flow.
+"
